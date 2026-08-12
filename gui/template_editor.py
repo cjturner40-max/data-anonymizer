@@ -27,8 +27,16 @@ class TemplateEditor(ctk.CTkToplevel):
         self.after(50, self.grab_set)  # deferred so the CTkToplevel has finished drawing first
         if theme.ICON_PATH.exists():
             icon = str(theme.ICON_PATH)
-            self.after(100, lambda: self.iconbitmap(icon))
-            self.after(300, lambda: self.iconbitmap(icon))
+
+            def try_set_icon():
+                # .ico only works with Tk's iconbitmap on Windows -- best-effort elsewhere
+                try:
+                    self.iconbitmap(icon)
+                except Exception:
+                    pass
+
+            self.after(100, try_set_icon)
+            self.after(300, try_set_icon)
 
         self.id_var = tk.StringVar(value="")
         self.id_var.trace_add("write", self._on_id_changed)

@@ -75,12 +75,23 @@ class MainWindow(ctk.CTk):
         self.geometry(f"{width}x{height}+{x}+{y}")
 
     def _set_icon(self):
-        if theme.ICON_PATH.exists():
-            icon = str(theme.ICON_PATH)
-            self.iconbitmap(icon)
-            # customtkinter re-applies its own default icon shortly after init, so
-            # re-set ours a moment later to make sure it's the one that sticks
-            self.after(250, lambda: self.iconbitmap(icon))
+        # .ico only works with Tk's iconbitmap on Windows -- macOS/Linux need a
+        # different format/API entirely, so this is best-effort: skip quietly
+        # rather than let a cosmetic feature take the whole app down.
+        if not theme.ICON_PATH.exists():
+            return
+        icon = str(theme.ICON_PATH)
+
+        def try_set():
+            try:
+                self.iconbitmap(icon)
+            except Exception:
+                pass
+
+        try_set()
+        # customtkinter re-applies its own default icon shortly after init, so
+        # re-set ours a moment later to make sure it's the one that sticks
+        self.after(250, try_set)
 
     def _build_layout(self):
         panes = ctk.CTkFrame(self, fg_color="transparent")
