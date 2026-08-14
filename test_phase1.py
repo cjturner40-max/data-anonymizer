@@ -3,7 +3,7 @@ from pathlib import Path
 import pandas as pd
 
 from app.engine import process_run
-from app.output_writer import write_xlsx
+from app.output_writer import needs_secondary_file, write_xlsx, write_xlsx_secondary
 from app.template_model import ColumnRule, Template
 
 BASE = Path(__file__).parent
@@ -76,6 +76,11 @@ out_path = OUT_DIR / "anonymized_output.xlsx"
 write_xlsx(result, out_path)
 print(f"\nWrote: {out_path}")
 
+secondary_path = OUT_DIR / "key_unresolved.xlsx"
+assert needs_secondary_file(result, include_key=True), "this run has unresolved rows, should need a secondary file"
+write_xlsx_secondary(result, secondary_path, include_key=True)
+print(f"Wrote: {secondary_path}")
+
 # template save/load round trip -- uses a throwaway store, never the app's real templates_store
 import tempfile
 
@@ -116,28 +121,32 @@ assert sorted(result.key_table["Common Identifier"]) == ["1001", "1002", "1003"]
 key_lookup = dict(zip(result.key_table["Common Identifier"], result.key_table["Anonymized ID"]))
 assert key_lookup["1001"] == row_e["StudentID"], "key must map the real ID to the same fake ID used in the output"
 
-# xlsx output should have 4 sheets: 2 matched + 2 unresolved (Excel sheet names cap at 31 chars)
+# primary (clean) output should have ONLY the 2 matched sheets -- never anything
+# unresolved or identifying, so it's always safe to hand off on its own
 import openpyxl  # noqa: E402
 
 wb = openpyxl.load_workbook(out_path)
-assert set(wb.sheetnames) == {
-    "Edmentum Course Export",
-    "Infinite Campus Export",
+assert set(wb.sheetnames) == {"Edmentum Course Export", "Infinite Campus Export"}, wb.sheetnames
+
+# secondary file should hold the unresolved tabs + the key (Excel sheet names cap at 31 chars)
+wb_secondary = openpyxl.load_workbook(secondary_path)
+assert set(wb_secondary.sheetnames) == {
     "Unresolved - Edmentum Course Ex",
     "Unresolved - Infinite Campus Ex",
-}, wb.sheetnames
-assert "Key" not in wb.sheetnames, "Key sheet should not appear unless include_key=True"
-
-# re-write with the key included and confirm it shows up with the right content
-keyed_path = OUT_DIR / "anonymized_output_with_key.xlsx"
-write_xlsx(result, keyed_path, include_key=True)
-wb_keyed = openpyxl.load_workbook(keyed_path)
-assert "Key" in wb_keyed.sheetnames
-key_ws = wb_keyed["Key"]
+    "Key",
+}, wb_secondary.sheetnames
+key_ws = wb_secondary["Key"]
 key_rows = list(key_ws.iter_rows(values_only=True))
 assert key_rows[0] == ("Common Identifier", "Anonymized ID")
 assert len(key_rows) == 4  # header + 3 matched IDs
-print(f"Wrote: {keyed_path}")
+
+# a run with nothing unresolved and no key requested shouldn't need a secondary file
+no_secondary_result = process_run(
+    {edmentum_template.name: edmentum_template},
+    {edmentum_template.name: SAMPLE_DIR / "edmentum_export.csv"},
+    anonymize=False,
+)
+assert not needs_secondary_file(no_secondary_result, include_key=False)
 
 # --- regression test: a blank common identifier must go to Unresolved, never silently
 # ride into the matched/anonymized tab with an empty ID ---

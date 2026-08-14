@@ -30,6 +30,8 @@ A standalone Windows (and experimentally, macOS) desktop app that anonymizes CSV
 - **Delete-checkbox semantics** (not "keep"): fewer clicks, since most columns in a report are typically kept.
 - **CSV output is single-report only**: if multiple reports are selected with CSV chosen, the user gets a confirmation dialog rather than a silent restriction.
 - **Unresolved rows are unedited**: unmatched rows go to a separate `Unresolved - <Report>` tab with the *original*, un-anonymized, un-filtered data — so the user has full context to manually reconcile or discard them, rather than losing information.
+- **Two-file output split**: the clean/matched output and anything identifying (Unresolved rows, the Key) are written to two separate files, never one — so the primary file is provably safe to hand off on its own, with no chance of PII riding along in an unread tab. The user picks one destination folder; filenames are auto-generated with a shared timestamp (`anonymized_output_<timestamp>`, `key_unresolved_<timestamp>`) so the two files from one run are easy to pair up. A CSV run's companion key file matches CSV format rather than always being Excel.
+- **Anonymize defaults to checked**: re-checks itself automatically whenever the run transitions from empty to non-empty (i.e., a genuinely fresh run), but respects a manual uncheck for the rest of that run — so adding more reports to an in-progress run never silently re-enables it against the user's choice.
 - **Template storage lives in `%APPDATA%\Data Anonymizer\templates\`**, not relative to the app's install location. This was a deliberate fix — see Packaging section, it would have silently broken in the packaged app otherwise.
 - **Color palette**: settled on a warm/earthy palette (terracotta `#CD8B62`, sand `#EED7A1`, dark slate `#475C6C`) per the user's own reference images — an earlier teal/blue pass (based on the org's brand guide) was explicitly replaced because the user found it "too striking."
 
@@ -45,6 +47,7 @@ The user had a separate Claude instance review the code for unbiased feedback. R
 
 Also fixed based on the user's own live testing:
 6. **Raw `PermissionError` shown on locked files** (e.g., output file open in Excel) — now shows a specific, actionable message. Verified by actually locking a file in real Excel and re-triggering the save.
+7. **Dead code left over from the single-file → two-file output rewrite** — a leftover fragment after the permission-error dialog referenced `self` inside a `@staticmethod` (no `self` in scope) and an undefined variable, so it would throw a second, confusing "unexpected error" popup immediately after every legitimate permission-error dialog. Verified fixed by write-protecting a folder with `icacls` and re-triggering a real save failure.
 
 Points from the review that were deliberately **not** acted on (judgment calls, not oversights): a theoretical ID-collision risk from stripping punctuation (doesn't apply to this org's actual ID formats), a preview-before-save step, an audit trail of runs, and pinned `requirements.txt` versions beyond `>=`.
 
@@ -57,6 +60,8 @@ Built with PyInstaller (`--onefile --windowed`, `.spec` file committed to the re
 **Crash handling added**: `--windowed` builds have no console, so unhandled exceptions normally vanish with zero trace. Added a catch-all in `main.py` (startup errors) and an override of Tkinter's `report_callback_exception` (runtime/callback errors) that both log to `%APPDATA%\Data Anonymizer\logs\error.log` and show a plain dialog. **Verified by deliberately injecting test crashes in both code paths** and confirming the dialog + log both fire correctly, then reverting the test code.
 
 Final Windows build (~39 MB) was tested thoroughly, live: template CRUD, save-collision protection, invalid-name validation, full anonymize+Key+Unresolved run, locked-file handling, disabled-button-during-run.
+
+**Rebuilt** after the default-checked-anonymize / two-file-output / timestamped-filenames changes (see Major Design Decisions). Re-verified live in the packaged exe: templates still load correctly, anonymize defaults to checked.
 
 One resolved false alarm worth knowing about: partway through testing the packaged exe, templates appeared to not be loading. Extensive debugging eventually showed this was **not a real bug** — it was an artifact of the testing method (the computer-use tool's `open_application` kept spawning duplicate process instances, and screenshots were catching those before they'd finished their (slow, first-run, likely-antivirus-scanned) startup). The underlying app code was correct the whole time.
 

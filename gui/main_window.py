@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tkinter as tk
+from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
@@ -8,7 +9,13 @@ import customtkinter as ctk
 
 from app.engine import process_run
 from app.errors import show_error_and_log
-from app.output_writer import write_csv, write_xlsx
+from app.output_writer import (
+    needs_secondary_file,
+    write_csv,
+    write_csv_key,
+    write_xlsx,
+    write_xlsx_secondary,
+)
 from app.paths import user_data_dir
 from app.template_model import Template
 from gui import theme
@@ -49,8 +56,9 @@ class MainWindow(ctk.CTk):
         self.templates_by_name: dict[str, Template] = {}
         self.task_entries: dict[str, Path] = {}  # template name -> source file path
         self.format_var = tk.StringVar(value="xlsx")
-        self.anonymize_var = tk.BooleanVar(value=False)
+        self.anonymize_var = tk.BooleanVar(value=True)
         self.include_key_var = tk.BooleanVar(value=False)
+        self._anonymize_was_available = False
 
         self._build_layout()
         self.refresh_list()
@@ -380,20 +388,30 @@ class MainWindow(ctk.CTk):
     def _update_anonymize_availability(self):
         selected = [self.templates_by_name[name] for name in self.task_entries if name in self.templates_by_name]
         if not selected:
-            self.anonymize_check.configure(state="disabled")
-            self.anonymize_var.set(False)
+            available = False
             self.anonymize_note.configure(text="")
         else:
             missing_id = [t.name for t in selected if t.id_column is None]
             if missing_id:
-                self.anonymize_check.configure(state="disabled")
-                self.anonymize_var.set(False)
+                available = False
                 self.anonymize_note.configure(
                     text=f"Unavailable — no common identifier set for: {', '.join(missing_id)}"
                 )
             else:
-                self.anonymize_check.configure(state="normal")
+                available = True
                 self.anonymize_note.configure(text="")
+
+        if available:
+            self.anonymize_check.configure(state="normal")
+            if not self._anonymize_was_available:
+                # just became possible (e.g. a fresh run being built) -- default to on,
+                # without overriding a deliberate uncheck made earlier in this same run
+                self.anonymize_var.set(True)
+        else:
+            self.anonymize_check.configure(state="disabled")
+            self.anonymize_var.set(False)
+        self._anonymize_was_available = available
+
         self._sync_include_key_state()
 
     def _sync_include_key_state(self):
@@ -445,45 +463,66 @@ class MainWindow(ctk.CTk):
             messagebox.showerror("Run failed", str(exc))
             return
 
-        default_ext = ".xlsx" if output_format == "xlsx" else ".csv"
-        default_name = (selected[0].name if len(selected) == 1 else "anonymized_output") + default_ext
-        out_path = filedialog.asksaveasfilename(
-            title="Save output as...",
-            defaultextension=default_ext,
-            filetypes=[("Excel", "*.xlsx")] if output_format == "xlsx" else [("CSV", "*.csv")],
-            initialfile=default_name,
-        )
-        if not out_path:
+        include_key = self.include_key_var.get()
+        out_dir_str = filedialog.askdirectory(title="Select a folder to save the output to...")
+        if not out_dir_str:
             return
+        out_dir = Path(out_dir_str)
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        ext = ".xlsx" if output_format == "xlsx" else ".csv"
+        primary_path = out_dir / f"anonymized_output_{timestamp}{ext}"
 
         try:
             if output_format == "xlsx":
-                write_xlsx(result, Path(out_path), include_key=self.include_key_var.get())
+                write_xlsx(result, primary_path)
             else:
-                write_csv(result, Path(out_path))
+                write_csv(result, primary_path)
         except PermissionError:
-            messagebox.showerror(
-                "Couldn't write output",
-                f"Couldn't save to:\n{out_path}\n\n"
-                "This usually means the file is currently open in Excel or another program. "
-                "Close it and try again, or choose a different filename.",
-            )
+            self._show_write_permission_error(primary_path)
             return
         except Exception as exc:
             messagebox.showerror("Couldn't write output", str(exc))
             return
+
+        written_paths = [primary_path]
+
+        if needs_secondary_file(result, include_key):
+            secondary_path = out_dir / f"key_unresolved_{timestamp}{ext}"
+            try:
+                if output_format == "xlsx":
+                    write_xlsx_secondary(result, secondary_path, include_key=include_key)
+                else:
+                    write_csv_key(result, secondary_path)
+            except PermissionError:
+                self._show_write_permission_error(secondary_path)
+                return
+            except Exception as exc:
+                messagebox.showerror("Couldn't write output", str(exc))
+                return
+            written_paths.append(secondary_path)
 
         if result.unmatched_count:
             breakdown = ", ".join(f"{name}: {n}" for name, n in result.unmatched_by_template.items() if n)
             messagebox.showwarning(
                 "Some rows didn't match",
                 f"{result.unmatched_count} row(s) could not be matched across all selected reports "
-                f"({breakdown}). Those rows were left out of the matched tabs and placed, unedited, "
-                "in separate 'Unresolved - <report>' tabs in the output file for you to review.",
+                f"({breakdown}). Those rows were left out of the clean output and placed, unedited, "
+                "in the second file for you to review.",
             )
 
-        messagebox.showinfo("Done", f"Output saved to:\n{out_path}")
-        self.status_label.configure(text=f"Last run saved to {out_path}")
+        paths_text = "\n".join(str(p) for p in written_paths)
+        messagebox.showinfo("Done", f"Output saved to:\n{paths_text}")
+        self.status_label.configure(text=f"Last run saved to {out_dir}")
+
+    @staticmethod
+    def _show_write_permission_error(path: Path):
+        messagebox.showerror(
+            "Couldn't write output",
+            f"Couldn't save to:\n{path}\n\n"
+            "This usually means the file is currently open in Excel or another program. "
+            "Close it and try again.",
+        )
 
 
 def main():
