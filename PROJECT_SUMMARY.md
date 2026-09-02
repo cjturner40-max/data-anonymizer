@@ -77,6 +77,10 @@ The Mac build also has no custom icon (PyInstaller's default was used, to reduce
 - **GitHub Release `v1.0.0`**: permanent home for both built binaries — Windows `.exe` (tested) and macOS `.app.zip` (build-verified only). This is the right mechanism for distributing built binaries (not committing them to git history, and not relying on CI artifacts which expire).
 - Both unsigned executables will trigger first-run OS warnings (SmartScreen on Windows, Gatekeeper on Mac) — worth a heads-up to any colleague trying it.
 
+## Known UI Issues (Not Yet Fixed)
+
+- **Template editor column list misaligns on long header names** ([gui/template_editor.py:69](gui/template_editor.py#L69) header row, [gui/template_editor.py:175](gui/template_editor.py#L175) per-row label) — the column-name `CTkLabel` is given a fixed `width=260` but that's a minimum, not a cap: a header long enough to exceed it (seen with a real Genius SIS export, e.g. "Step 7: First Course Celebration - Date Completed") pushes the Delete checkbox and Common Identifier radio button to the right instead of wrapping/truncating, throwing off the column alignment for every row below it. Purely visual — Chris flagged it 2026-09-02, deferred the fix. Chris's opening idea: give just that column a horizontal scrollbar so long names scroll instead of pushing the row wider; open to other approaches (e.g. truncate with a tooltip, or wrap the header text) when this gets picked up.
+
 ## Suggested Next Steps
 
 1. **Get the macOS build tested on an actual Mac** — this is the one thing that's genuinely unverified.
@@ -91,4 +95,4 @@ The Mac build also has no custom icon (PyInstaller's default was used, to reduce
 - Templates (runtime data): `%APPDATA%\Data Anonymizer\templates\`
 - Crash log: `%APPDATA%\Data Anonymizer\logs\error.log`
 - GitHub repo: https://github.com/cjturner40-max/data-anonymizer
-- Release/downloads: https://github.com/cjturner40-max/data-anonymizer/releases/tag/v1.0.0
+- Release/downloads: https://github.com/cjturner40-max/data-anonymizer/releases/tag/v1.1.0
