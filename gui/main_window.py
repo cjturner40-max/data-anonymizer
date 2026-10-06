@@ -6,6 +6,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 import customtkinter as ctk
+from customtkinter.windows.widgets.scaling.scaling_tracker import ScalingTracker
 
 from app.engine import process_run
 from app.errors import show_error_and_log
@@ -25,6 +26,25 @@ STORE_DIR = user_data_dir() / "templates"
 
 ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("blue")
+
+
+def install_dpi_guard():
+    """Stop customtkinter from ever adopting a display scaling of 0.
+
+    CTk polls Windows for the monitor's DPI every half second. When the display is
+    asleep, the screen is locked, or a monitor/remote session drops out, that call can
+    fail and leave the DPI at 0 -- CTk then stores a scaling of 0 and every later
+    window <Configure> event raises ZeroDivisionError. Keeping the window's last good
+    scaling in that case makes the glitch a no-op instead of an error storm."""
+    original = ScalingTracker.get_window_dpi_scaling.__func__
+
+    def guarded(cls, window):
+        scaling = original(cls, window)
+        if scaling and scaling > 0:
+            return scaling
+        return cls.window_dpi_scaling_dict.get(window, 1.0)
+
+    ScalingTracker.get_window_dpi_scaling = classmethod(guarded)
 
 
 def _style_listbox(listbox: tk.Listbox):
@@ -526,6 +546,7 @@ class MainWindow(ctk.CTk):
 
 
 def main():
+    install_dpi_guard()
     app = MainWindow()
     app.mainloop()
 

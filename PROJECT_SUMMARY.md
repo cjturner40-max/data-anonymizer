@@ -48,6 +48,7 @@ The user had a separate Claude instance review the code for unbiased feedback. R
 Also fixed based on the user's own live testing:
 6. **Raw `PermissionError` shown on locked files** (e.g., output file open in Excel) — now shows a specific, actionable message. Verified by actually locking a file in real Excel and re-triggering the save.
 7. **Dead code left over from the single-file → two-file output rewrite** — a leftover fragment after the permission-error dialog referenced `self` inside a `@staticmethod` (no `self` in scope) and an undefined variable, so it would throw a second, confusing "unexpected error" popup immediately after every legitimate permission-error dialog. Verified fixed by write-protecting a folder with `icacls` and re-triggering a real save failure.
+8. **Endless "Unexpected error" dialogs after the app sat idle** (found by Chris, 2026-10-06; v1.1.1) — when the display sleeps, the screen locks, or a monitor/remote session drops, Windows can report a display DPI of 0 to customtkinter, which stores a scaling of 0 and then raises `ZeroDivisionError` on every window `<Configure>` event. The error dialog itself fires more such events, so dialogs re-spawned forever until the process was killed (113 logged occurrences back to Aug 2026). Fixed two ways: `install_dpi_guard()` in `gui/main_window.py` ignores a 0 reading and keeps the last good scaling (root cause), and `app/errors.py` now shows each distinct error once and stays quiet while it keeps repeating within 30s (safety net for any future repeating callback error). Verified by simulating a 0 DPI reading: runaway loop before, 0 dialogs after.
 
 Points from the review that were deliberately **not** acted on (judgment calls, not oversights): a theoretical ID-collision risk from stripping punctuation (doesn't apply to this org's actual ID formats), a preview-before-save step, an audit trail of runs, and pinned `requirements.txt` versions beyond `>=`.
 
@@ -95,4 +96,4 @@ The Mac build also has no custom icon (PyInstaller's default was used, to reduce
 - Templates (runtime data): `%APPDATA%\Data Anonymizer\templates\`
 - Crash log: `%APPDATA%\Data Anonymizer\logs\error.log`
 - GitHub repo: https://github.com/cjturner40-max/data-anonymizer
-- Release/downloads: https://github.com/cjturner40-max/data-anonymizer/releases/tag/v1.1.0
+- Release/downloads: https://github.com/cjturner40-max/data-anonymizer/releases/tag/v1.1.1
